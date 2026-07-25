@@ -6,6 +6,7 @@ import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
+import org.springframework.util.ObjectUtils;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -27,12 +28,13 @@ public class WeatherClient {
                 restTemplate.getForEntity(buildWeatherApiUri(), WeatherDto[].class);
 
         WeatherDto[] weatherArray = responseEntity.getBody();
+        // Spring/Apache Commons 사용 시 ObjectUtils.isEmpty() 활용
         if (!HttpStatus.OK.equals(responseEntity.getStatusCode())) {
             throw new ServerException("날씨 데이터를 가져오는데 실패했습니다. 상태 코드: " + responseEntity.getStatusCode());
-        } else {
-            if (weatherArray == null || weatherArray.length == 0) {
-                throw new ServerException("날씨 데이터가 없습니다.");
-            }
+        }
+
+        if (ObjectUtils.isEmpty(weatherArray)) {
+            throw new ServerException("날씨 데이터가 없습니다.");
         }
 
         String today = getCurrentDate();
