@@ -3,6 +3,7 @@ package org.example.expert.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.UnsupportedJwtException;
 import io.jsonwebtoken.security.SignatureException;
@@ -43,15 +44,35 @@ public class JwtFilter implements Filter {
             return;
         }
 
+        Claims claims;
+
         try {
             String jwt = jwtUtil.substringToken(bearerJwt);
-            Claims claims = jwtUtil.extractClaims(jwt);
+            claims = jwtUtil.extractClaims(jwt);
+        } catch (ExpiredJwtException e) {
+            log.info("JWT 만료: userId={}, URI={}", e.getClaims().getSubject(), url);
+            sendErrorResponse(httpResponse, HttpStatus.UNAUTHORIZED, "만료된 토큰입니다.");
+            return;
+        } catch (SignatureException e) {
+            log.warn("JWT 서명 불일치: URI={}", url);
+            sendErrorResponse(httpResponse, HttpStatus.UNAUTHORIZED, "유효하지 않은 토큰입니다.");
+            return;
+        } catch (MalformedJwtException | UnsupportedJwtException e) {
+            log.warn("JWT 검증 실패 [{}]: URI={}", e.getClass().getSimpleName(), url);
+            sendErrorResponse(httpResponse, HttpStatus.UNAUTHORIZED, "유효하지 않은 토큰입니다.");
+            return;
+        } catch (JwtException | IllegalArgumentException e) {
+            log.warn("JWT 형식 오류 [{}]: URI={}", e.getClass().getSimpleName(), url);
+            sendErrorResponse(httpResponse, HttpStatus.UNAUTHORIZED, "토큰 형식이 올바르지 않습니다.");
+            return;
+        }
 
+        try {
             Long userId = Long.valueOf(claims.getSubject());
             String email = claims.get("email", String.class);
             String userRole = claims.get("userRole", String.class);
 
-            if (email == null || userRole == null) {
+            if (email == null || email.isBlank() || userRole == null || userRole.isBlank()) {
                 log.warn("필수 JWT Claim 누락: userId={}, URI={}", userId, url);
                 sendErrorResponse(httpResponse, HttpStatus.UNAUTHORIZED, "인증 정보가 올바르지 않습니다.");
                 return;
@@ -60,21 +81,19 @@ public class JwtFilter implements Filter {
             request.setAttribute("userId", userId);
             request.setAttribute("email", email);
             request.setAttribute("userRole", userRole);
-
-            chain.doFilter(request, response);
-        } catch (ExpiredJwtException e) {
-            log.info("JWT 만료: userId={}, URI={}", e.getClaims().getSubject(), url);
-            sendErrorResponse(httpResponse, HttpStatus.UNAUTHORIZED, "만료된 토큰입니다.");
-        } catch (SignatureException | MalformedJwtException | UnsupportedJwtException e) {
-            log.warn("JWT 검증 실패 [{}]: URI={}, message={}", e.getClass().getSimpleName(), url, e.getMessage());
-            sendErrorResponse(httpResponse, HttpStatus.UNAUTHORIZED, "유효하지 않은 토큰입니다.");
-        } catch (IllegalArgumentException e) {
-            log.warn("JWT 형식 오류: URI={}, message={}", url, e.getMessage());
-            sendErrorResponse(httpResponse, HttpStatus.UNAUTHORIZED, "토큰 형식이 올바르지 않습니다.");
-        } catch (Exception e) {
-            log.error("예상치 못한 오류: URI={}", url, e);
-            sendErrorResponse(httpResponse, HttpStatus.INTERNAL_SERVER_ERROR, "요청 처리 중 오류가 발생했습니다.");
+        } catch (NumberFormatException e) {
+            log.warn("JWT 사용자 ID 형식 오류: subject={}, URI={}", claims.getSubject(), url);
+            sendErrorResponse(httpResponse, HttpStatus.UNAUTHORIZED, "인증 정보가 올바르지 않습니다.");
+            return;
         }
+
+        /*
+         * JWT 검증은 모두 끝났다.
+         *
+         * Controller나 Service에서 발생하는 예외는 JwtFilter가 잡지 않고
+         * GlobalExceptionHandler 등 다음 예외 처리 계층으로 전달한다.
+         */
+        chain.doFilter(request, response);
     }
 
     private void sendErrorResponse(HttpServletResponse response, HttpStatus status, String message) throws IOException {
