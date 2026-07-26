@@ -11,6 +11,7 @@ import org.example.expert.domain.todo.entity.Todo;
 import org.example.expert.domain.todo.repository.TodoRepository;
 import org.example.expert.domain.user.dto.response.UserResponse;
 import org.example.expert.domain.user.entity.User;
+import org.example.expert.domain.user.repository.UserRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -22,12 +23,14 @@ import org.springframework.transaction.annotation.Transactional;
 public class TodoService {
 
     private final TodoRepository todoRepository;
+    private final UserRepository userRepository;
     private final WeatherClient weatherClient;
 
     @Transactional
     public TodoSaveResponse saveTodo(AuthUser authUser, TodoSaveRequest todoSaveRequest) {
-        User user = User.fromAuthUser(authUser);
-
+        User user = userRepository.findById(authUser.getId())
+                .orElseThrow(() -> new InvalidRequestException("존재하지 않는 사용자입니다.")
+                );
         String weather = weatherClient.getTodayWeather();
 
         Todo newTodo = new Todo(
@@ -36,13 +39,14 @@ public class TodoService {
                 weather,
                 user
         );
+
         Todo savedTodo = todoRepository.save(newTodo);
 
         return new TodoSaveResponse(
                 savedTodo.getId(),
                 savedTodo.getTitle(),
                 savedTodo.getContents(),
-                weather,
+                savedTodo.getWeather(),
                 new UserResponse(user.getId(), user.getEmail())
         );
     }
